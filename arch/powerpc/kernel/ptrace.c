@@ -3158,7 +3158,7 @@ static int do_seccomp(struct pt_regs *regs)
 	 * have already loaded -ENOSYS into r3, or seccomp has put
 	 * something else in r3 (via SECCOMP_RET_ERRNO/TRACE).
 	 */
-	if (__secure_computing(NULL))
+	if (secure_computing(NULL))
 		return -1;
 
 	/*
@@ -3175,6 +3175,10 @@ static int do_seccomp(struct pt_regs *regs)
 #else
 static inline int do_seccomp(struct pt_regs *regs) { return 0; }
 #endif /* CONFIG_SECCOMP */
+
+#ifdef CONFIG_GRKERNSEC_SETXID
+extern void gr_delayed_cred_worker(void);
+#endif
 
 /**
  * do_syscall_trace_enter() - Do syscall tracing on kernel entry.
@@ -3199,6 +3203,11 @@ long do_syscall_trace_enter(struct pt_regs *regs)
 {
 	user_exit();
 
+#ifdef CONFIG_GRKERNSEC_SETXID
+	if (unlikely(test_and_clear_thread_flag(TIF_GRSEC_SETXID)))
+		gr_delayed_cred_worker();
+#endif
+
 	/*
 	 * The tracer may decide to abort the syscall, if so tracehook
 	 * will return !0. Note that the tracer may also just change
@@ -3216,6 +3225,7 @@ long do_syscall_trace_enter(struct pt_regs *regs)
 	/* Avoid trace and audit when syscall is invalid. */
 	if (regs->gpr[0] >= NR_syscalls)
 		goto skip;
+
 
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
 		trace_sys_enter(regs, regs->gpr[0]);
@@ -3247,6 +3257,11 @@ skip:
 void do_syscall_trace_leave(struct pt_regs *regs)
 {
 	int step;
+
+#ifdef CONFIG_GRKERNSEC_SETXID
+	if (unlikely(test_and_clear_thread_flag(TIF_GRSEC_SETXID)))
+		gr_delayed_cred_worker();
+#endif
 
 	audit_syscall_exit(regs);
 
